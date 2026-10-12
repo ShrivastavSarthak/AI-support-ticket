@@ -1,7 +1,7 @@
 import os 
 from dotenv import load_dotenv
 from pinecone import Pinecone
-
+from app.services.rag_service import re_ranker
 load_dotenv()
 
 pc = Pinecone(
@@ -51,10 +51,10 @@ def store_embeddings(
     }
 
 
-def find_query(query: list[float]) -> list[dict]:
+def find_query(query: list[float], rerank_query: str) -> list[dict]:
     response = index.query(
         vector=query,
-        top_k=5,
+        top_k=10,
         namespace="support_document",
         include_metadata=True
     )
@@ -67,4 +67,5 @@ def find_query(query: list[float]) -> list[dict]:
             "score":match.score,
             "metadata":match.metadata
         })
-    return matches
+    final_response = re_ranker(rerank_query, matches, 5)
+    return final_response
