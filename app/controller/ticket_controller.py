@@ -10,10 +10,12 @@ async def raiseTicket(ticket:Ticket_model):
         category = ticket.category,
         file = ticket.file,
     )
+    '''ENTER YOUR EMAIL'''
     ticket_text = f"""
         Title:{ticket.title},
         Description:{ticket.description},
         Category:{ticket.category},
+        Email:"Enter your own Email" 
     """
 
     query_embedding = await create_embedding([

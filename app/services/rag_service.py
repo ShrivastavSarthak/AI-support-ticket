@@ -4,6 +4,10 @@ from openai import AsyncOpenAI
 from dotenv import load_dotenv
 import cohere
 import os
+from app.services.email_service import email_service
+from app.tools.email_tool import EMAIL_TOOL
+import json
+from app.models.email_model import Email_model
 load_dotenv()
 
 client = AsyncOpenAI(
@@ -84,24 +88,83 @@ async def llm_response(ans_chunk: list[dict], question: str):
     )
 
     instructions = f"""
-You are an AI customer support assistant for our e-commerce company.
+    You are an AI customer support assistant for our e-commerce company.
 
-Answer the customer using ONLY the company information provided below.
+    COMPANY INFORMATION:
+    {context}
 
-If the answer is not available in the provided information, say:
-"I don't have that information in the company documents."
+    RULES:
+    1. Answer the customer using ONLY the company information provided above.
+    2. If the answer is not available in the provided information, say:
+       "I don't have that information in the company documents."
 
-COMPANY INFORMATION:
-{context}
-"""
+    3. you MUST use the `email_service` tool to send an email containing
+       the details of the complaint. Do this even if the customer does
+       not explicitly ask you to send an email.
+    
+    4. After sending the email successfully, respond to the customer in chat
+       and inform them that their complaint has been noted and that the
+       support team will provide them with an update.
+
+    5. If the customer has not provided their email address, politely ask
+       for their email address before sending the email. Do not claim that
+       an email has been sent until the tool confirms success.
+
+    6. Include the relevant complaint details in the email, such as the
+       customer's email address, product name, complaint description,
+       and return/refund issue, whenever available.
+
+    7. Do not send duplicate emails for the same complaint within the
+       same conversation unless the customer reports a new or different issue.
+
+    8. For other questions that are not return/refund complaints, answer
+       normally using the company information above.
+    """
 
     response = await client.responses.create(
         model=CHAT_MODEL,
         instructions=instructions,
         input=question,
-        temperature=0.5
+        temperature=0.5,
+        tools=[EMAIL_TOOL],
     )
-
+    
+    for item in response.output:
+        if item.type  != "function_call":
+            continue
+        if item.name == "email_service":
+            args = json.loads(item.arguments)
+            mail = Email_model(
+                receiver_mail= args['receiver_mail'],
+                title= args['title'],
+                content= args["content"]
+            )
+            
+            result = email_service(mail)
+            
+            response = await client.responses.create(
+                model=CHAT_MODEL,
+                instructions=instructions,
+                input=[
+                {
+                    "role": "user",
+                    "content": question
+                },
+                {
+                    "type": "function_call",
+                    "call_id": item.call_id,
+                    "name": item.name,
+                    "arguments": item.arguments
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": item.call_id,
+                    "output": json.dumps(result)
+                }
+                ],
+                tools=[EMAIL_TOOL]
+            )
+    
     return response.output_text
 
 co = cohere.Client(os.getenv("COHERE_API_KEY"))
